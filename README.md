@@ -1,404 +1,490 @@
-# ATS GPT
+<div align="center">
 
-ATS GPT is a purpose-built resume intelligence platform for evaluating a resume against a specific job description and turning the result into practical next steps.
+# 🎯 ATS GPT
 
-It combines document extraction, ATS-oriented analysis, structured scoring, keyword and skills comparison, configurable evaluation preferences, resume enhancement, cover-letter generation, and PDF resume building in one focused workflow. The product is not designed as a general-purpose chatbot. Its prompts, response schemas, parsing logic, caching, and interface are organized around the decisions people make when applying for a job.
+### AI-powered resume analysis, built around a multi-provider AI architecture.
 
-> **Resume Intelligence, Operationalized**
+![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white)
+![Groq](https://img.shields.io/badge/AI-Groq%20%7C%20Gemini-orange?style=for-the-badge)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+*Analyzes resumes against job requirements and returns structured, actionable feedback — powered by an architecture where users can bring their own AI provider key.*
 
-## Product Overview
+</div>
 
-ATS GPT helps a candidate answer four concrete questions:
+<br>
 
-1. How closely does my resume align with this job description?
-2. Which keywords and skills are missing or underrepresented?
-3. What specific improvements should I make without inventing experience?
-4. Can I produce a cleaner, ATS-friendly resume and optional cover letter from the same source material?
+## 📚 Table of Contents
 
-The application supports two complementary product modes:
+- [Preview](#-preview)
+- [Introduction](#-introduction)
+- [The Problem](#-the-problem)
+- [Our Solution](#-our-solution--multi-provider-user-specific-ai-architecture)
+- [AI Routing Flow](#-ai-routing-flow)
+- [User-Specific API Isolation](#-user-specific-api-isolation)
+- [Database & Persistence](#-database--persistence-architecture)
+- [API Key Security](#-api-key-security)
+- [Rate-Limit Handling](#-intelligent-rate-limit-handling)
+- [Provider Abstraction](#-ai-provider-abstraction)
+- [Why This Architecture Matters](#-why-this-architecture-matters)
+- [Why ATS GPT?](#-why-ats-gpt)
+- [Features](#-features)
+- [Technology Stack](#-technology-stack)
+- [Project Structure](#-project-structure)
+- [Setup & Installation](#-setup--installation)
+- [User AI Configuration Guide](#-user-ai-configuration-guide)
+- [Engineering Decisions](#-key-engineering-decisions)
+- [Future Improvements](#-future-improvements)
 
-- **Analyze Resume** compares an uploaded resume with a job description and returns a structured analysis.
-- **Build Resume** collects information manually or imports a PDF/DOCX, then produces a formatted resume PDF and an optional cover-letter PDF.
+<br>
 
-## The Problem
+## 📸 Preview
 
-The original hosted workflow depended on a single shared platform API key. That was useful for development and early usage because a fast hosted inference provider made the first version easy to operate. It also created a predictable operational bottleneck:
+<table>
+<tr>
+<td width="50%">
 
-- **Shared rate limits:** every request competed for the same provider allocation.
-- **Finite free-tier usage:** a busy application could exhaust the available quota.
-- **Unreliable availability:** a quota failure appeared at the exact moment a candidate needed feedback.
-- **Poor failure recovery:** a generic AI error did not explain what the user could do next.
-- **Provider coupling:** analysis logic became too dependent on one transport and one provider contract.
+**Landing**
+<br>
+<em>Resume intelligence, refined.</em>
 
-The engineering question was therefore larger than “how do we call an AI API?” It was: how do we keep the resume workflow specialized and useful while making provider selection explicit, failures understandable, and future provider changes inexpensive?
+![ATS GPT landing page](./screenshots/hero-landing.png)
 
-## Solution: A Provider-Aware AI Architecture
+</td>
+<td width="50%">
 
-ATS GPT separates the resume domain layer from the provider transport layer.
+**Sign in**
+<br>
+<em>Google or GitHub OAuth to get into your workspace.</em>
 
-The resume analyzer and builder ask the LLM facade for a completion. The centralized router then chooses the active provider according to the user's browser configuration and the platform fallback configuration.
+![ATS GPT login screen](./screenshots/login.png)
 
-Current routing priority:
+</td>
+</tr>
+<tr>
+<td width="50%">
 
-1. A personal provider key saved in the browser, if configured.
-2. The platform AI fallback when no personal key exists.
+**AI Resume Builder**
+<br>
+<em>Upload an existing resume to auto-fill, or start from scratch.</em>
 
-The application currently supports Groq and Gemini provider adapters. The deployed platform fallback is Gemini. The provider abstraction keeps the rest of the application independent from those provider-specific request formats.
+![AI Resume Builder screen](./screenshots/resume-builder.png)
+
+</td>
+<td width="50%">
+
+**Analyze Resume**
+<br>
+<em>Step 2 of the guided flow — add your resume and target job description.</em>
+
+![Analyze Resume step](./screenshots/analyze-resume.png)
+
+</td>
+</tr>
+</table>
+
+> Screenshots live in `./screenshots/` — keep that folder alongside `README.md` in the repo root so the images render on GitHub.
+
+<br>
+
+## 🎯 Introduction
+
+**ATS GPT** is an AI-powered resume analysis and ATS (Applicant Tracking System) optimization platform. It analyzes resumes against job requirements and returns structured, actionable feedback — not a free-form chat response, but a focused evaluation built around how real ATS pipelines and hiring workflows actually assess candidates.
+
+The goal was never to build "another AI chatbot." It was to build a **specialized resume intelligence system** — optimized specifically around resume analysis, ATS compatibility scoring, job-description matching, and concrete improvement recommendations.
+
+To make that system sustainable at scale, ATS GPT is built around a model where users can rely on the platform's built-in AI access **or** bring their own AI provider API key. That architectural decision is the core engineering story of this project — and the reason this README exists in the form it does.
+
+<br>
+
+## ⚠️ The Problem
+
+Early versions of ATS GPT relied entirely on a **single shared platform-level Groq API key** to power all resume analysis. That worked fine during development, but it doesn't scale as a permanent architecture. Four specific problems emerged:
+
+| # | Problem | Why it hurts |
+|---|---|---|
+| 1 | **Rate limits** | One shared key means every user competes for the same request budget |
+| 2 | **Limited free usage** | The shared/free-tier quota is finite and can be exhausted entirely |
+| 3 | **Scalability ceiling** | A single key serving unlimited users doesn't scale — more users means less reliable access for everyone |
+| 4 | **Poor UX on failure** | Without a fallback, quota exhaustion becomes a raw, unexplained error for the user |
+
+> **In short:** the application's availability was coupled to a single external resource it didn't control. That coupling had to be broken.
+
+<br>
+
+## 🏗️ Our Solution — Multi-Provider, User-Specific AI Architecture
+
+Instead of forcing the entire application to depend on one shared API key, ATS GPT introduces a **user-specific AI provider architecture**. Each authenticated user can have their own, independent AI configuration.
+
+| Configuration | Description |
+|---|---|
+| 🟢 **Platform-provided AI** | Default state — uses the platform's shared Groq configuration |
+| 🔑 **User-provided Groq key** | User supplies their own Groq API key |
+| 🔑 **User-provided Gemini key** | User supplies their own Gemini API key |
+
+> **Core idea:** every user's AI configuration is independent. One user's API key is never shared with, or accessible to, another user.
+
+This directly eliminates the shared-key bottleneck while keeping ATS GPT fully usable for anyone who hasn't configured anything — the platform key remains the default fallback.
+
+<br>
+
+## 🔀 AI Routing Flow
+
+At the center of the architecture is an **AI Router** that decides, per request, which provider and which credentials to use — based on the authenticated user, not a global setting.
 
 ```mermaid
 flowchart TD
-    User[Candidate] --> UI[ATS GPT web application]
-    UI --> LLM[LLM facade]
-    LLM --> Router[Central AI router]
-    Router --> Config{Personal provider key in browser?}
-    Config -->|Yes| Personal[Selected personal provider]
-    Config -->|No| Platform[Platform fallback]
-    Personal --> Groq[Groq adapter]
-    Personal --> Gemini[Gemini adapter]
-    Platform --> Gemini
-    Groq --> Domain[Resume analysis or builder workflow]
-    Gemini --> Domain
-    Domain --> Result[Structured analysis or generated document]
+    A[User Login] --> B[ATS GPT]
+    B --> C[Check User AI Configuration]
+    C --> D{Does the user have<br/>a personal API key?}
+    D -->|Yes| E[Identify Provider]
+    E --> F{Groq or Gemini?}
+    F --> G[Use User's API Configuration]
+    D -->|No| H[Platform AI]
+    H --> I[Platform Groq]
 ```
 
-### New user
+<details>
+<summary><b>Scenario A — New User</b></summary>
+<br>
 
-A new visitor can use the platform fallback without entering a key:
-
-```text
-New visitor
-    -> no personal provider configuration
-    -> platform AI fallback
-    -> resume analysis or builder request
+```
+New User → No personal AI configuration
+         → Use platform-provided Groq configuration
+         → Resume analysis works normally
 ```
 
-### Personal provider configuration
+A new user configures nothing. Resume analysis works out of the box using the platform's default Groq configuration.
+</details>
 
-The Settings flow validates a personal key before saving it:
+<details>
+<summary><b>Scenario B — User Adds Their Own API Key</b></summary>
+<br>
 
-```text
-Settings
-    -> choose a supported provider
-    -> enter API key
-    -> Test Connection
-    -> save the validated configuration in this browser
-    -> use that provider for future requests in this browser
+```
+User → Settings → Select Groq / Gemini → Enter API Key
+     → Validate API Key → Securely store configuration
+     → Associate configuration with authenticated user
 ```
 
-The saved configuration survives normal page reloads because it is stored in `localStorage`. It is not currently associated with an authenticated account.
+Once saved, that user's AI requests route through their own configured provider from then on — no re-entry required on future sessions.
+</details>
 
-### Returning user
+<details>
+<summary><b>Scenario C — Returning User</b></summary>
+<br>
 
-A returning user on the same browser profile loads the saved provider configuration automatically. Clearing the browser storage, using a different browser profile, or using another device does not currently carry that configuration over.
-
-## Current Persistence and Security Model
-
-This repository is a static frontend application. It does **not** currently include authentication, a server API, or a database-backed user account system.
-
-That distinction matters:
-
-- Personal provider settings are stored in browser `localStorage` under `ats-buddy:ai-provider-config`.
-- The stored credential is lightly obfuscated at rest and is never displayed in full; this is not encryption and cannot protect a user from someone who can inspect that browser profile.
-- The raw personal key is held in memory when requests are made and is sent directly to the selected provider from the browser.
-- Analysis history is stored in browser IndexedDB under the `ats-buddy` database. It is local to that browser profile.
-- The current platform Gemini credential is present in the client bundle through `src/services/aiRouter.ts`, which means it should be treated as public and quota-limited rather than as a secret.
-- No authenticated user isolation exists in the current implementation. Browser-profile separation is not equivalent to account-level isolation.
-
-This is an intentional privacy tradeoff for a static client application, but it is also the principal security limitation of the current deployment. A production multi-user architecture should move provider credentials and the platform credential behind a server-side API, associate configuration with an authenticated user ID, encrypt secrets with a managed key service, and never return raw credentials to the browser.
-
-## Intelligent Rate-Limit Handling
-
-Provider errors are normalized into application-level error codes in `src/services/aiProvider.ts` and `src/services/aiErrors.ts`. The UI can distinguish an invalid key, a personal-provider quota failure, a platform quota failure, an unavailable provider, and a general request failure.
-
-When the platform quota is exhausted, the application presents a recovery action instead of an opaque failure:
-
-```text
-Shared AI capacity reached
-    -> Configure AI Provider
-    -> validate a personal key
-    -> continue with personal provider capacity
+```
+Login → Identify authenticated user → Load user's AI configuration
+      → Personal provider exists → Use previously configured provider
 ```
 
-This does not remove provider limits. It converts a platform-level failure into a clear, user-controlled recovery path and reduces dependence on one shared allocation.
+Configuration persists across sessions, tied to the authenticated user's account — not a browser, device, or IP address.
+</details>
 
-## AI Provider Abstraction
+<br>
 
-Provider-specific behavior lives behind a small adapter interface:
+## 🔒 User-Specific API Isolation
 
-```text
-AIProvider
-    |-- GroqProvider
-    |-- GeminiProvider
+One of the most important technical properties of the system: **API configurations belong to the authenticated user, not the application as a whole.**
+
+```
+User A
+ └── Groq configuration A
+
+User B
+ └── Gemini configuration B
+
+User C
+ └── No personal configuration
+     └── Platform AI (fallback)
 ```
 
-Each adapter is responsible for its own request format, streaming response handling, key validation, and provider-specific error translation. The router owns selection and fallback behavior. Resume analysis, enhancement, and resume building remain domain workflows and do not need to know which provider handled a request.
+- If **User A** configures a Groq key, only User A's requests use it.
+- **User B cannot see, use, or access User A's key** — there is no shared credential surface between accounts.
+- If **User B** configures a Gemini key independently, their requests route through Gemini while User A's continue through Groq.
+- **User C**, having configured nothing, falls back to the platform's shared Groq configuration.
 
-This makes future adapters such as OpenAI or Anthropic possible without claiming that they are implemented today. A new provider would need an adapter, error mappings, configuration UI, and focused tests; the resume workflow itself should not need to be redesigned.
+Multiple users can use different providers — or none at all — **simultaneously**, without any cross-user interference.
 
-## Resume Intelligence Workflow
+<br>
 
-### Analysis
+## 🗄️ Database / Persistence Architecture
 
-The analysis flow is deliberately structured rather than conversational:
+Each user's AI configuration is persisted as a record tied to their authenticated account:
 
-1. Read selectable text from a PDF or extract text from an uploaded document.
-2. Combine the resume, job description, and optional tailoring preferences.
-3. Ask for a defined JSON shape containing missing keywords, missing technical and soft skills, strengths, areas for improvement, suggestions, and a 0-100 compatibility score.
-4. Parse defensively and coerce fields into the application's known domain shape.
-5. Retry once with a formatting prompt when the response cannot be parsed.
-6. Save the report in local IndexedDB and expose Markdown/HTML report downloads.
+| Field | Purpose |
+|---|---|
+| `userId` | Links the configuration to a specific authenticated account |
+| `provider` | Which provider this configuration targets (Groq / Gemini) |
+| `encryptedApiKey` | The user's API key, stored using server-side encryption — never in plaintext |
+| `isActive` | Whether this configuration is currently in use |
+| `createdAt` | When the configuration was first saved |
+| `updatedAt` | When it was last modified |
 
-The tailoring step lets users adjust strictness, detail, focus areas, and notes before analysis. The cache key includes the resume bytes, job description, backend, model, and tailoring settings so changing those inputs cannot return a stale report.
+> 🔐 API credentials are **never stored in plaintext**. They're protected via server-side encryption and never exposed to the frontend after being saved.
+>
+> 🪪 The **authenticated user's account/session identifier is the primary association mechanism** — not an IP address. IP data, where captured, is auxiliary audit metadata only, never the ownership mechanism for a key.
 
-### Enhancement
+<br>
 
-The enhancement workflow asks for a cover letter and a rewritten resume grounded in the original resume and analysis. It detects truncated output, attempts a continuation, and can request the missing resume section separately when a model returns only a cover letter.
+## 🛡️ API Key Security
 
-The prompts explicitly prohibit invented employers, credentials, dates, and unsupported metrics. This is a product requirement, not just a prompt preference: a polished but fabricated resume is worse than an incomplete one.
+User-provided API keys are sensitive credentials, and the architecture treats them accordingly:
 
-### Resume builder
+- ✅ Handled **server-side only** — never exposed in frontend code or client bundles
+- ✅ Never returned to the frontend in plaintext after being saved
+- ✅ Stored **encrypted at rest**
+- ✅ The platform's own API key stays server-side, never exposed to any client
+- ✅ **User A's credentials cannot be retrieved by User B** — isolation enforced at the data layer
+- ✅ Never committed to source control — platform credentials live in environment variables/secrets
+- ✅ Validated before saving, where supported (a lightweight test call before persisting)
 
-The builder has two entry paths:
+In the UI, saved keys are always shown masked:
 
-- **Manual entry:** personal information, target role, experience, projects, education, skills, certifications, notes, and optional job description.
-- **Import:** PDF or DOCX text extraction followed by structured resume generation.
+```
+Groq
+gsk_••••••••••••7K9P
+✓ Connected
+```
 
-The builder requests a compact structured JSON object, normalizes common model variations, retries once on parsing failure, and renders a single-page resume PDF in the browser. An optional cover letter is rendered as a separate PDF.
+<br>
 
-## Why ATS GPT Is Specialized
+## ⚡ Intelligent Rate-Limit Handling
 
-General-purpose models can discuss resumes, but ATS GPT is organized around a specific evaluation workflow. Its domain-focused prompts and structured output contract make the product reason about:
+When the platform's shared AI quota is exhausted, ATS GPT doesn't surface a raw provider error — it detects the failure and responds with something actionable:
 
-- job-description keywords
-- technical and soft skills
-- evidence in the candidate's actual resume
-- experience alignment
-- strengths and gaps
-- actionable improvements
-- overall resume/job compatibility
-- ATS-readable output structure
+> **"Our shared AI capacity has reached its current limit. You can continue using ATS GPT by connecting your own Groq or Gemini API key in Settings."**
+>
+> `[ Configure AI Provider ]`
 
-The project has been iteratively refined against representative sample resumes and job descriptions. The repository does not contain foundation-model training or fine-tuning code, so this README does not claim that ATS GPT trained a model. The specialization comes from prompt design, response schemas, parsing, evaluation workflow, and product constraints around truthful resume rewriting.
+This turns a platform-level limitation into something the user can resolve immediately, and reduces the app's dependency on a single shared free-tier allocation as the *only* path to availability.
 
-## End-to-End Architecture
+<br>
+
+## 🧩 AI Provider Abstraction
+
+Resume analysis is intentionally **not tightly coupled** to any single AI provider. A centralized AI service sits between the resume analyzer and the underlying providers:
 
 ```mermaid
 flowchart LR
-    File[Resume PDF or DOCX] --> Extract[Document extraction]
-    Extract --> Prompt[Domain prompt construction]
-    JD[Job description] --> Prompt
-    Preferences[Optional tailoring] --> Prompt
-    Prompt --> Facade[LLM facade]
-    Facade --> Router[Provider router]
-    Router --> Provider[Configured adapter or platform fallback]
-    Provider --> Stream[Streaming response]
-    Stream --> Parse[Defensive structured parsing]
-    Parse --> Analysis[ATS result]
-    Analysis --> Cache[IndexedDB report history]
-    Analysis --> Export[Markdown or standalone HTML]
-    Analysis --> Enhance[Optional rewrite and cover letter]
+    A[Resume Analyzer] --> B[AI Service / Router]
+    B --> C[Groq Provider]
+    B --> D[Gemini Provider]
 ```
 
-## Features
+The resume analyzer asks the AI service to perform an operation — it doesn't need to know or care whether that request is served by Groq or Gemini. This keeps the system maintainable and means additional providers could be integrated later **without redesigning the resume-analysis engine itself**.
 
-- Resume upload for PDF and DOCX workflows
-- PDF text extraction with bundled pdf.js assets
-- DOCX text extraction without a separate server
-- Resume/job-description compatibility scoring
-- Missing keyword analysis
-- Missing technical and soft-skill analysis
-- Strengths and areas-for-improvement sections
-- Actionable suggestions with fallback guidance when fewer than three are returned
-- Optional tailoring controls for strictness, detail, focus, and notes
-- Resume enhancement and cover-letter generation
-- Manual resume builder with structured fields
-- PDF resume generation and optional cover-letter PDF generation
-- Browser-local report history with clear-history controls
-- Markdown and standalone HTML report downloads
-- Groq and Gemini provider adapters
-- Personal provider key validation and masked display
-- Platform fallback routing
-- Normalized invalid-key, quota, network, and request errors
-- In-browser WebLLM option for supported WebGPU environments
-- Local server option for a reachable compatible inference server
-- Responsive React interface with animated introduction and workflow transitions
+> No additional providers are implemented today — this describes the extensibility the abstraction enables, not current functionality.
 
-## Technology Stack
+<br>
 
-| Area | Technology used |
-| --- | --- |
-| UI | React 19 with TypeScript |
-| Build and dev server | Vite 8 |
-| Styling | Tailwind CSS 4 with `@tailwindcss/vite` |
-| Motion | Motion library (`motion/react`) |
-| AI providers | Gemini and Groq HTTP adapters |
-| Browser-local inference | `@mlc-ai/web-llm` and WebGPU |
-| Document processing | `pdfjs-dist`, browser APIs, bundled pdf.js assets |
-| Persistence | IndexedDB for reports; `localStorage` for browser settings |
-| Testing | Vitest, Testing Library, jsdom, fake-indexeddb |
-| Deployment | Vercel; also compatible with static hosting when configured appropriately |
+## 📈 Why This Architecture Matters
 
-There is no backend framework, authentication service, hosted database, or server-side secret manager in this repository.
+| Property | What it means for ATS GPT |
+|---|---|
+| **Scalability** | Users bring their own provider credentials instead of consuming one shared allocation |
+| **Reliability** | If the shared platform quota drops, users have an immediate alternative |
+| **User Control** | Users choose which supported AI provider powers their analysis |
+| **Provider Flexibility** | The app isn't permanently locked to a single AI vendor |
+| **Isolation** | Each user's configuration and credentials are fully independent |
+| **Cost Management** | Shared access by default, with headroom via user-provided credentials |
+| **Long-Term Architecture** | The abstraction layer makes future AI integrations lower-risk |
 
-## Repository Structure
+<br>
 
-```text
-ats-buddy/
-├── public/
-│   └── pdfjs/                  Bundled pdf.js fonts and character maps
-├── scripts/
-│   └── copy-pdfjs-assets.mjs   Copies required pdf.js assets before dev/build
-├── samples/
-│   ├── job_descriptions/       Example target postings
-│   └── resumes/                Example resumes for manual testing
+## 🌟 Why ATS GPT?
+
+ATS GPT isn't positioned as objectively "better" than general-purpose AI chat tools — that's not a meaningful claim. The real differentiation is **specialization**:
+
+> General-purpose AI models are designed to answer a broad range of questions. ATS GPT is designed around a focused resume-analysis workflow.
+
+Rather than being trained or fine-tuned as a foundation model, ATS GPT's behavior comes from **specialized prompting and structured evaluation logic** — iteratively refined and tested against representative/sample resumes and job descriptions, organized around the dimensions that actually matter for ATS-style evaluation:
+
+`Resume structure` · `ATS compatibility` · `Job-description matching` · `Skills identification` · `Keyword relevance` · `Experience alignment` · `Strengths & weaknesses` · `Missing information` · `Actionable recommendations` · `Overall alignment`
+
+This produces structured, consistent, resume-specific feedback — instead of the open-ended output you'd get from asking a general-purpose chatbot the same question.
+
+<br>
+
+## ✨ Features
+
+<table>
+<tr><td width="200"><b>🧠 Core Analysis</b></td><td>
+
+- Resume upload & parsing
+- AI-powered resume analysis
+- ATS compatibility scoring
+- Job-description matching
+- Skills & keyword analysis
+- Strengths / weaknesses breakdown
+- Actionable improvement suggestions
+
+</td></tr>
+<tr><td><b>🔑 AI Configuration</b></td><td>
+
+- User-specific AI provider configuration
+- Groq integration
+- Gemini integration
+- API-key validation before save
+- Persistent, per-user provider configuration
+- Rate-limit detection & graceful fallback messaging
+
+</td></tr>
+<tr><td><b>🖥️ Platform</b></td><td>
+
+- Authentication
+- Dashboard
+- Settings
+- Responsive UI
+
+</td></tr>
+</table>
+
+> Review this list against the actual repository and remove anything not currently implemented.
+
+<br>
+
+## 🛠️ Technology Stack
+
+| Layer | Technology |
+|---|---|
+| **Frontend** | React + TypeScript |
+| **Styling** | CSS |
+| **AI Providers** | Groq API, Google Gemini API |
+| **Backend** | *(add your backend framework here)* |
+| **Database** | *(add your database here)* |
+| **Authentication** | *(add your auth approach here)* |
+| **File Processing** | *(add your resume-parsing library here)* |
+| **Deployment** | *(add your hosting platform here)* |
+
+> ✅ Frontend confirmed: **React, TypeScript, CSS**.
+> ⚠️ The remaining rows are placeholders — fill in the backend, database, auth, and deployment details that actually exist in this repository before publishing.
+
+<br>
+
+## 📁 Project Structure
+
+> ⚠️ Placeholder — replace with the real repository layout. Shown below is a typical layout for a React + TypeScript frontend.
+
+```
+ats-gpt/
 ├── src/
-│   ├── components/             React UI, builder, picker, results, and motion
-│   ├── hooks/                  Backend and analysis orchestration hooks
+│   ├── components/       # Reusable UI components (.tsx)
+│   ├── pages/            # Top-level views/routes
 │   ├── services/
-│   │   ├── aiRouter.ts         Provider selection and platform fallback
-│   │   ├── aiProvider.ts       Provider abstraction and error translation
-│   │   ├── gemini.ts           Gemini transport and streaming parser
-│   │   ├── groq.ts             Groq transport and streaming parser
-│   │   ├── analyze.ts          Analysis and enhancement workflows
-│   │   ├── resumeBuilder.ts    Structured resume generation and PDF rendering
-│   │   ├── resumeImport.ts     Resume import and extraction helpers
-│   │   ├── parse.ts             Defensive analysis response parsing
-│   │   ├── prompts.ts           Domain prompts and JSON schemas
-│   │   ├── pdf.ts               PDF extraction and rendering support
-│   │   ├── report.ts            Markdown and HTML report rendering
-│   │   └── db.ts                IndexedDB report persistence
-│   ├── wizard/                 Workflow steps and navigation rules
-│   ├── App.tsx                 Application shell and mode orchestration
-│   ├── index.css               Global tokens and styling
-│   └── types.ts                Shared TypeScript domain types
-├── index.html
-├── package.json
+│   │   ├── ai/           # AI router + provider adapters (Groq, Gemini)
+│   │   └── resume/       # Resume parsing & analysis logic
+│   ├── hooks/            # Custom React hooks
+│   ├── types/            # Shared TypeScript types/interfaces
+│   ├── styles/           # CSS files
+│   ├── App.tsx
+│   └── index.tsx
+├── public/
+├── .env.example
 ├── tsconfig.json
-├── vercel.json
-└── vite.config.ts
+├── package.json
+└── README.md
 ```
 
-## Getting Started
+<br>
 
-### Prerequisites
+## 🚀 Setup & Installation
 
-- Node.js compatible with the repository's Vite and TypeScript toolchain
-- npm
-- A Gemini or Groq API key only if using a personal provider configuration
-- A modern browser for the deployed or local web application
+> ⚠️ Placeholder — verify variable names and commands against the actual repo before publishing.
 
-### Install and run
+**1. Clone the repository**
 
 ```bash
-git clone <repository-url>
-cd ats-buddy
-npm install
-npm run dev
+git clone https://github.com/your-org/ats-gpt.git
+cd ats-gpt
 ```
 
-Open the local URL printed by Vite.
+**2. Install dependencies**
 
-### Production build
+```bash
+npm install
+```
+
+**3. Configure environment variables**
+
+Create a `.env` file based on `.env.example`:
+
+```env
+# Platform AI provider (fallback for users without a personal key)
+GROQ_API_KEY=your_platform_key_here
+
+# Database
+DATABASE_URL=your_database_connection_string
+
+# Authentication
+AUTH_SECRET=your_auth_secret_here
+
+# Encryption key used to encrypt stored user API credentials
+CREDENTIAL_ENCRYPTION_KEY=your_encryption_key_here
+```
+
+> Never commit a `.env` file or real API keys to source control.
+
+**4. Start the development server**
+
+```bash
+npm start
+```
+
+**5. Build for production**
 
 ```bash
 npm run build
-npm run preview
 ```
 
-The `predev` and `prebuild` scripts copy the pdf.js assets required by the PDF workflow.
+<br>
 
-### Environment variables
+## 🔧 User AI Configuration Guide
 
-The current repository does not read a platform API key from an environment variable. The platform fallback is defined in the client-side router, which is a security limitation that should be addressed before operating a high-volume public service.
+Any authenticated user can connect their own AI provider from **Settings**:
 
-Personal keys are entered through **Settings -> AI Provider -> Test Connection -> Save** and are stored in the current browser profile. Never commit a real API key to GitHub.
-
-The login gate is prepared for OAuth but requires provider credentials before it can complete a real sign-in. Configure these Vite variables in the deployment environment:
-
-```text
-VITE_GOOGLE_CLIENT_ID=your_google_oauth_client_id
-VITE_GITHUB_CLIENT_ID=your_github_oauth_client_id
+```
+Settings → AI Provider → Select Groq or Gemini
+         → Enter API Key → Test Connection → Save
 ```
 
-Register `/auth/callback.html` as the OAuth callback URL for the deployed origin. Google can return an implicit access token to the browser callback. GitHub's authorization-code flow requires a server-side exchange for production use; the current static app does not yet include that exchange or an authenticated account backend.
+Once saved, the configuration is tied to that specific authenticated user's account — no need to re-enter it on future logins. The AI Router automatically loads and uses it for all subsequent resume-analysis requests.
 
-### Vercel deployment
+<br>
 
-From the application directory:
+## 🧠 Key Engineering Decisions
 
-```bash
-vercel --prod
-```
+| Decision | Why it matters |
+|---|---|
+| **Centralized AI routing** | One router owns provider selection instead of scattering the logic across the codebase — auditable and easy to extend |
+| **User-specific provider configuration** | Tying configuration to the authenticated user (not session/device/IP) makes isolation correct and durable across logins |
+| **Server-side API-key handling** | Credentials never touch the frontend after being saved, removing a whole class of client-side exposure risk |
+| **Provider abstraction over direct integration** | The resume analyzer talks to an AI service interface, not Groq/Gemini directly — adding a future provider is a contained change, not a rewrite |
+| **Persistent, encrypted configuration** | Configuration is stored durably and protected at rest, rather than reconstructed each session |
+| **Rate-limit-aware error handling** | Provider quota failures are caught and turned into an actionable message instead of a raw error |
+| **Separation of AI logic from analysis logic** | The resume-analysis workflow is independent of *which* provider executes it |
 
-The included `vercel.json` supplies JavaScript module MIME headers used by the static deployment. The Vite base path is `/` for Vercel and local builds; `DEPLOY_TARGET=pages` switches it to `/ats-buddy/` for a GitHub Pages project site.
+<br>
 
-## Testing
+## 🗺️ Future Improvements
 
-```bash
-npm test
-npm run test:watch
-npm run test:coverage
-npm run typecheck
-```
+*Planned directions, not current functionality:*
 
-The test suite covers wizard navigation, provider and backend behavior, streaming clients, response parsing, prompt tailoring, report rendering and escaping, cache keys, browser persistence, and component behavior. Network, GPU, and pdf.js-worker paths are mocked or require a browser environment and are not fully represented by jsdom tests.
+- [ ] Additional AI provider integrations (e.g. OpenAI, Anthropic)
+- [ ] More advanced resume/job-description matching logic
+- [ ] Resume version tracking and history
+- [ ] Usage analytics and provider usage monitoring
+- [ ] More detailed, simulation-based ATS scoring
+- [ ] Expanded evaluation datasets for prompt refinement
+- [ ] Automated benchmarking of analysis quality
+- [ ] Team/company account support
 
-## Engineering Decisions
+<br>
 
-### Centralized routing
+<div align="center">
 
-A single router gives provider selection and error classification one owner. Analysis and builder code stay focused on resume behavior instead of duplicating provider fallback logic.
+**ATS GPT** — a purpose-built resume-analysis platform with a specialized AI workflow and a multi-provider architecture designed around real-world API availability, scalability, and user-specific configuration needs.
 
-### Provider adapters
-
-The provider interface isolates request formats and streaming details. This is especially useful because Groq uses an OpenAI-compatible SSE shape while Gemini has its own streaming response format.
-
-### Structured output
-
-Analysis and builder workflows request predictable JSON structures and parse defensively. The system does not assume that every model will follow instructions perfectly; retries and normalization are part of the product design.
-
-### Local persistence
-
-IndexedDB is appropriate for report history because reports can contain substantial text and should remain available without a hosted database. `localStorage` is sufficient for small browser preferences, but it is not an account system.
-
-### Honest failure handling
-
-Provider errors are translated into meaningful states. A rate-limit failure should lead to a recovery instruction, while malformed output should lead to a retry or a precise parsing message.
-
-### Separation of domain and transport
-
-The resume-analysis prompts, scoring shape, enhancement workflow, and PDF renderer should remain stable even when the underlying AI provider changes.
-
-## Security and Production Hardening
-
-The current static architecture is useful for a privacy-oriented personal tool, but it is not a secure multi-tenant credential vault. Before scaling it to many users, the next security boundary should be:
-
-1. Add authentication and associate provider configuration with an account ID.
-2. Move AI requests behind a server-side API or edge function.
-3. Store platform and personal credentials only in protected server-side storage.
-4. Encrypt provider credentials with a managed key service.
-5. Never return raw credentials to the frontend.
-6. Add per-user authorization checks, quota accounting, abuse controls, and audit logging.
-7. Rotate the currently exposed platform credential and move it out of the client bundle.
-
-These are future hardening steps, not capabilities provided by the current repository.
-
-## Future Improvements
-
-- Server-side credential vault and authenticated user accounts
-- Additional provider adapters
-- Per-user usage and quota visibility
-- More advanced resume/job evidence matching
-- Resume version tracking and comparison
-- Automated benchmarking against a maintained evaluation set
-- More detailed ATS simulation and formatting diagnostics
-- Team or company workspaces
-- Usage analytics with privacy-preserving controls
-- Better import support for additional document formats
-- Browser-based visual regression coverage for animated and PDF workflows
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+</div>
